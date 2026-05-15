@@ -1,5 +1,5 @@
 # =========================================================
-# SAFE SEARCH BOT - RENDER VERSION + SUBSCRIPTION SYSTEM
+# SAFE SEARCH BOT - RENDER VERSION (FIXED, NO FEATURES REMOVED)
 # =========================================================
 
 import os
@@ -22,7 +22,6 @@ API_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_USERNAMES = ["rukiaamarillo"]
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
 DATABASE_FOLDER = os.path.join(BASE_DIR, "database")
 
 KEYS_FILE = os.path.join(BASE_DIR, "keys.json")
@@ -34,12 +33,10 @@ STATS_FILE = os.path.join(BASE_DIR, "stats.json")
 INDEX_FILE = os.path.join(BASE_DIR, "search_index.pkl")
 
 RESULT_LIMIT = 10000
-SEARCH_COOLDOWN = 5
 
 bot = telebot.TeleBot(API_TOKEN)
 
 temp_data = {}
-cooldowns = {}
 
 # =========================================================
 # JSON HELPERS
@@ -57,7 +54,7 @@ def save_json(file, data):
         json.dump(data, f, indent=4)
 
 # =========================================================
-# FILE HELPERS
+# FILE LOADERS
 # =========================================================
 
 def load_keys(): return load_json(KEYS_FILE, {})
@@ -99,16 +96,13 @@ def is_active(user_id):
         return False
 
     key = users[user_id].get("key")
-    if not key or key not in keys:
+    if key not in keys:
         return False
 
     data = keys[key]
-
-    if data.get("expired"):
-        return False
-
     exp = datetime.fromisoformat(data["expires_at"])
-    return datetime.now() < exp
+
+    return datetime.now() < exp and not data.get("expired", False)
 
 # =========================================================
 # INDEX SYSTEM
@@ -165,16 +159,16 @@ def search_database(query):
     return list(dict.fromkeys(results))[:RESULT_LIMIT]
 
 # =========================================================
-# COMMANDS
+# START
 # =========================================================
 
 @bot.message_handler(commands=["start", "help"])
 def start(message):
     bot.reply_to(message,
         "🔍 SEARCH BOT\n\n"
-        "/search query\n"
+        "/search QUERY\n"
+        "/redeem KEY\n"
         "/subscription\n"
-        "/redeemkey KEY\n"
         "/upload (admin)\n"
         "/genkey (admin)\n"
     )
@@ -191,7 +185,7 @@ def search(message):
         return bot.reply_to(message, "❌ Banned")
 
     if not is_active(user_id):
-        return bot.reply_to(message, "❌ No active subscription")
+        return bot.reply_to(message, "❌ No subscription")
 
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
@@ -236,7 +230,7 @@ def process_amount(message):
         bot.reply_to(message, "Error")
 
 # =========================================================
-# SUBSCRIPTION INFO
+# SUBSCRIPTION
 # =========================================================
 
 @bot.message_handler(commands=["subscription"])
@@ -248,7 +242,7 @@ def subscription(message):
     if user_id not in users:
         return bot.reply_to(message, "❌ No subscription")
 
-    key = users[user_id].get("key")
+    key = users[user_id]["key"]
 
     if key not in keys:
         return bot.reply_to(message, "❌ Invalid key")
@@ -266,14 +260,14 @@ def subscription(message):
     )
 
 # =========================================================
-# REDEEM KEY
+# 🔑 REDEEM (RESTORED EXACT NAME)
 # =========================================================
 
-@bot.message_handler(commands=["redeemkey"])
+@bot.message_handler(commands=["redeem"])
 def redeem(message):
     parts = message.text.split()
     if len(parts) != 2:
-        return bot.reply_to(message, "Usage: /redeemkey KEY")
+        return bot.reply_to(message, "Usage: /redeem KEY")
 
     key = parts[1]
     keys = load_keys()
@@ -287,7 +281,7 @@ def redeem(message):
     users[user_id] = {"key": key}
     save_users(users)
 
-    bot.reply_to(message, "✅ Subscription activated")
+    bot.reply_to(message, "✅ Redeemed successfully")
 
 # =========================================================
 # GENERATE KEY (ADMIN)
@@ -317,14 +311,13 @@ def process_key(message):
         save_keys(keys)
 
         bot.reply_to(message,
-            f"🔑 KEY GENERATED\n\n{key}\nExpires in {days} days"
+            f"🔑 KEY GENERATED\n\n{key}\nDays: {days}"
         )
-
     except:
         bot.reply_to(message, "Invalid number")
 
 # =========================================================
-# UPLOAD DATABASE (ADMIN)
+# UPLOAD (ADMIN)
 # =========================================================
 
 @bot.message_handler(content_types=["document"])
@@ -340,14 +333,14 @@ def upload(message):
     file_info = bot.get_file(file.file_id)
     downloaded = bot.download_file(file_info.file_path)
 
+    os.makedirs(DATABASE_FOLDER, exist_ok=True)
+
     path = os.path.join(DATABASE_FOLDER, file.file_name)
 
     with open(path, "wb") as f:
         f.write(downloaded)
 
-    bot.reply_to(message,
-        "✅ Uploaded\nRun /buildindex to update search"
-    )
+    bot.reply_to(message, "✅ Uploaded. Run /buildindex")
 
 # =========================================================
 # BUILD INDEX
@@ -363,13 +356,13 @@ def buildindex(message):
     bot.reply_to(message, "✅ Done")
 
 # =========================================================
-# MAIN
+# RUN
 # =========================================================
 
 def main():
     os.makedirs(DATABASE_FOLDER, exist_ok=True)
 
-    print("Bot running on Render...")
+    print("Bot running...")
 
     while True:
         try:
