@@ -1,5 +1,5 @@
 # =========================================================
-# SAFE SEARCH BOT - GITHUB DATABASE VERSION
+# SAFE SEARCH BOT - ZIP DATABASE VERSION
 # =========================================================
 
 import os
@@ -7,6 +7,7 @@ import json
 import secrets
 import pickle
 import re
+import zipfile
 
 from datetime import datetime, timedelta
 from collections import defaultdict
@@ -32,6 +33,11 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATABASE_FOLDER = os.path.join(
     BASE_DIR,
     "database"
+)
+
+ZIP_DATABASE = os.path.join(
+    BASE_DIR,
+    "database.zip"
 )
 
 KEYS_FILE = os.path.join(BASE_DIR, "keys.json")
@@ -100,7 +106,7 @@ def is_banned(user_id):
 
 def is_active(user_id, username=None):
 
-    # ✅ Admins bypass subscription
+    # ✅ Admin bypass
     if username and is_admin(username):
         return True
 
@@ -129,6 +135,39 @@ def is_active(user_id, username=None):
     )
 
 # =========================================================
+# ZIP EXTRACTION
+# =========================================================
+
+def extract_zip_database():
+
+    if not os.path.exists(ZIP_DATABASE):
+
+        print("❌ database.zip not found")
+        return
+
+    print("📦 Extracting database.zip")
+
+    os.makedirs(
+        DATABASE_FOLDER,
+        exist_ok=True
+    )
+
+    try:
+
+        with zipfile.ZipFile(
+            ZIP_DATABASE,
+            "r"
+        ) as zip_ref:
+
+            zip_ref.extractall(DATABASE_FOLDER)
+
+        print("✅ Extraction complete")
+
+    except Exception as e:
+
+        print(f"ZIP Error: {e}")
+
+# =========================================================
 # INDEX SYSTEM
 # =========================================================
 
@@ -140,7 +179,7 @@ def build_index():
 
     if not os.path.exists(DATABASE_FOLDER):
 
-        print("❌ No database folder found")
+        print("❌ No database folder")
         return
 
     files = [
@@ -187,12 +226,15 @@ def build_index():
                     for word in words:
 
                         if len(word) > 2:
+
                             index[word].append(line)
 
         except Exception as e:
+
             print(e)
 
     with open(INDEX_FILE, "wb") as f:
+
         pickle.dump(dict(index), f)
 
     print(
@@ -593,6 +635,9 @@ def main():
         DATABASE_FOLDER,
         exist_ok=True
     )
+
+    # ✅ AUTO EXTRACT ZIP
+    extract_zip_database()
 
     # ✅ AUTO BUILD INDEX
     build_index()
