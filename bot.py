@@ -1,5 +1,5 @@
 # =========================================================
-# SAFE SEARCH BOT - RENDER VERSION (FIXED, NO FEATURES REMOVED)
+# SAFE SEARCH BOT - FINAL RENDER VERSION
 # =========================================================
 
 import os
@@ -19,24 +19,25 @@ import telebot
 
 API_TOKEN = os.getenv("BOT_TOKEN")
 
-ADMIN_USERNAMES = ["rukiaamarillo"]
+ADMIN_USERNAMES = [
+    "rukiaamarillo"
+]
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATABASE_FOLDER = os.path.join(BASE_DIR, "database")
 
 KEYS_FILE = os.path.join(BASE_DIR, "keys.json")
 USERS_FILE = os.path.join(BASE_DIR, "users.json")
-MESSAGE_FILE = os.path.join(BASE_DIR, "message.txt")
 BANNED_FILE = os.path.join(BASE_DIR, "banned.json")
-HISTORY_FILE = os.path.join(BASE_DIR, "history.json")
-STATS_FILE = os.path.join(BASE_DIR, "stats.json")
 INDEX_FILE = os.path.join(BASE_DIR, "search_index.pkl")
 
 RESULT_LIMIT = 10000
+MAX_RESULTS_SEND = 500
 
 bot = telebot.TeleBot(API_TOKEN)
 
 temp_data = {}
+upload_wait = set()
 
 # =========================================================
 # JSON HELPERS
@@ -54,23 +55,23 @@ def save_json(file, data):
         json.dump(data, f, indent=4)
 
 # =========================================================
-# FILE LOADERS
+# FILE HELPERS
 # =========================================================
 
-def load_keys(): return load_json(KEYS_FILE, {})
-def save_keys(d): save_json(KEYS_FILE, d)
+def load_keys():
+    return load_json(KEYS_FILE, {})
 
-def load_users(): return load_json(USERS_FILE, {})
-def save_users(d): save_json(USERS_FILE, d)
+def save_keys(data):
+    save_json(KEYS_FILE, data)
 
-def load_banned(): return load_json(BANNED_FILE, [])
-def save_banned(d): save_json(BANNED_FILE, d)
+def load_users():
+    return load_json(USERS_FILE, {})
 
-def load_history(): return load_json(HISTORY_FILE, {})
-def save_history(d): save_json(HISTORY_FILE, d)
+def save_users(data):
+    save_json(USERS_FILE, data)
 
-def load_stats(): return load_json(STATS_FILE, {})
-def save_stats(d): save_json(STATS_FILE, d)
+def load_banned():
+    return load_json(BANNED_FILE, [])
 
 # =========================================================
 # AUTH
@@ -83,7 +84,7 @@ def is_banned(user_id):
     return str(user_id) in load_banned()
 
 # =========================================================
-# SUBSCRIPTION CHECK
+# SUBSCRIPTION
 # =========================================================
 
 def is_active(user_id):
@@ -96,13 +97,15 @@ def is_active(user_id):
         return False
 
     key = users[user_id].get("key")
+
     if key not in keys:
         return False
 
     data = keys[key]
-    exp = datetime.fromisoformat(data["expires_at"])
 
-    return datetime.now() < exp and not data.get("expired", False)
+    expires = datetime.fromisoformat(data["expires_at"])
+
+    return datetime.now() < expires and not data.get("expired", False)
 
 # =========================================================
 # INDEX SYSTEM
@@ -123,16 +126,18 @@ def build_index():
             with open(path, "r", encoding="utf-8", errors="ignore") as f:
                 for line in f:
                     line = line.strip()
+
                     if not line:
                         continue
 
                     words = set(re.findall(r'\b\w+\b', line.lower()))
 
-                    for w in words:
-                        if len(w) > 2:
-                            index[w].append(line)
-        except:
-            continue
+                    for word in words:
+                        if len(word) > 2:
+                            index[word].append(line)
+
+        except Exception as e:
+            print(e)
 
     with open(INDEX_FILE, "wb") as f:
         pickle.dump(dict(index), f)
@@ -146,15 +151,17 @@ def load_index():
 
 def search_database(query):
     index = load_index()
+
     if not index:
         return []
 
-    words = set(re.findall(r'\b\w+\b', query.lower()))
+    query_words = set(re.findall(r'\b\w+\b', query.lower()))
+
     results = []
 
-    for w in words:
-        if w in index:
-            results.extend(index[w])
+    for word in query_words:
+        if word in index:
+            results.extend(index[word])
 
     return list(dict.fromkeys(results))[:RESULT_LIMIT]
 
@@ -164,13 +171,15 @@ def search_database(query):
 
 @bot.message_handler(commands=["start", "help"])
 def start(message):
-    bot.reply_to(message,
-        "🔍 SEARCH BOT\n\n"
+    bot.reply_to(
+        message,
+        "🔍 SAFE SEARCH BOT\n\n"
         "/search QUERY\n"
         "/redeem KEY\n"
         "/subscription\n"
-        "/upload (admin)\n"
-        "/genkey (admin)\n"
+        "/upload\n"
+        "/buildindex\n"
+        "/genkey\n"
     )
 
 # =========================================================
@@ -179,38 +188,52 @@ def start(message):
 
 @bot.message_handler(commands=["search"])
 def search(message):
+
     user_id = str(message.from_user.id)
 
     if is_banned(user_id):
-        return bot.reply_to(message, "❌ Banned")
+        return bot.reply_to(message, "❌ You are banned")
 
     if not is_active(user_id):
-        return bot.reply_to(message, "❌ No subscription")
+        return bot.reply_to(message, "❌ No active subscription")
 
     parts = message.text.split(maxsplit=1)
+
     if len(parts) < 2:
-        return bot.reply_to(message, "Usage: /search query")
+        return bot.reply_to(message, "Usage:\n/search QUERY")
 
     query = parts[1]
 
     results = search_database(query)
 
     if not results:
-        return bot.reply_to(message, "No results")
+        return bot.reply_to(message, "❌ No results found")
 
     temp_data[user_id] = {
         "query": query,
         "results": results
     }
 
-    bot.reply_to(message, f"⚡ Found {len(results)} results\nHow many?")
+    bot.reply_to(
+        message,
+        f"⚡ Found {len(results)} results\n\nHow many results do you want?"
+    )
+
     bot.register_next_step_handler(message, process_amount)
 
+# =========================================================
+# PROCESS RESULTS
+# =========================================================
+
 def process_amount(message):
+
     user_id = str(message.from_user.id)
 
     try:
         amount = int(message.text)
+
+        amount = min(amount, MAX_RESULTS_SEND)
+
         data = temp_data[user_id]
 
         results = data["results"][:amount]
@@ -224,18 +247,21 @@ def process_amount(message):
             bot.send_document(message.chat.id, f)
 
         os.remove(filename)
+
         del temp_data[user_id]
 
-    except:
-        bot.reply_to(message, "Error")
+    except Exception as e:
+        bot.reply_to(message, f"Error:\n{e}")
 
 # =========================================================
-# SUBSCRIPTION
+# SUBSCRIPTION INFO
 # =========================================================
 
 @bot.message_handler(commands=["subscription"])
 def subscription(message):
+
     user_id = str(message.from_user.id)
+
     users = load_users()
     keys = load_keys()
 
@@ -248,99 +274,151 @@ def subscription(message):
         return bot.reply_to(message, "❌ Invalid key")
 
     data = keys[key]
-    exp = datetime.fromisoformat(data["expires_at"])
 
-    status = "ACTIVE" if datetime.now() < exp else "EXPIRED"
+    expires = datetime.fromisoformat(data["expires_at"])
 
-    bot.reply_to(message,
+    status = "ACTIVE" if datetime.now() < expires else "EXPIRED"
+
+    bot.reply_to(
+        message,
         f"📦 SUBSCRIPTION\n\n"
-        f"Key: {key}\n"
         f"Status: {status}\n"
-        f"Expires: {exp}"
+        f"Expires: {expires}"
     )
 
 # =========================================================
-# 🔑 REDEEM (RESTORED EXACT NAME)
+# REDEEM
 # =========================================================
 
 @bot.message_handler(commands=["redeem"])
 def redeem(message):
+
     parts = message.text.split()
+
     if len(parts) != 2:
-        return bot.reply_to(message, "Usage: /redeem KEY")
+        return bot.reply_to(message, "Usage:\n/redeem KEY")
 
     key = parts[1]
+
     keys = load_keys()
 
     if key not in keys:
-        return bot.reply_to(message, "Invalid key")
+        return bot.reply_to(message, "❌ Invalid key")
 
     users = load_users()
+
     user_id = str(message.from_user.id)
 
-    users[user_id] = {"key": key}
+    users[user_id] = {
+        "key": key
+    }
+
     save_users(users)
 
     bot.reply_to(message, "✅ Redeemed successfully")
 
 # =========================================================
-# GENERATE KEY (ADMIN)
+# GENERATE KEY
 # =========================================================
 
 @bot.message_handler(commands=["genkey"])
 def genkey(message):
+
     if not is_admin(message.from_user.username):
         return
 
     msg = bot.reply_to(message, "How many days?")
+
     bot.register_next_step_handler(msg, process_key)
 
 def process_key(message):
+
     try:
         days = int(message.text)
 
         key = secrets.token_urlsafe(16)
 
         keys = load_keys()
+
         keys[key] = {
             "created_at": datetime.now().isoformat(),
-            "expires_at": (datetime.now() + timedelta(days=days)).isoformat(),
+            "expires_at": (
+                datetime.now() + timedelta(days=days)
+            ).isoformat(),
             "expired": False
         }
 
         save_keys(keys)
 
-        bot.reply_to(message,
-            f"🔑 KEY GENERATED\n\n{key}\nDays: {days}"
+        bot.reply_to(
+            message,
+            f"🔑 KEY GENERATED\n\n{key}\n\nDays: {days}"
         )
+
     except:
         bot.reply_to(message, "Invalid number")
 
 # =========================================================
-# UPLOAD (ADMIN)
+# UPLOAD COMMAND
+# =========================================================
+
+@bot.message_handler(commands=["upload"])
+def upload_command(message):
+
+    if not is_admin(message.from_user.username):
+        return
+
+    user_id = str(message.from_user.id)
+
+    upload_wait.add(user_id)
+
+    bot.reply_to(
+        message,
+        "📂 Send the .txt database file now."
+    )
+
+# =========================================================
+# RECEIVE FILE
 # =========================================================
 
 @bot.message_handler(content_types=["document"])
-def upload(message):
+def receive_file(message):
+
+    user_id = str(message.from_user.id)
+
+    if user_id not in upload_wait:
+        return
+
     if not is_admin(message.from_user.username):
         return
 
     file = message.document
 
     if not file.file_name.endswith(".txt"):
-        return bot.reply_to(message, "Only .txt allowed")
+        return bot.reply_to(message, "❌ Only .txt files allowed")
 
-    file_info = bot.get_file(file.file_id)
-    downloaded = bot.download_file(file_info.file_path)
+    try:
 
-    os.makedirs(DATABASE_FOLDER, exist_ok=True)
+        file_info = bot.get_file(file.file_id)
 
-    path = os.path.join(DATABASE_FOLDER, file.file_name)
+        downloaded = bot.download_file(file_info.file_path)
 
-    with open(path, "wb") as f:
-        f.write(downloaded)
+        os.makedirs(DATABASE_FOLDER, exist_ok=True)
 
-    bot.reply_to(message, "✅ Uploaded. Run /buildindex")
+        path = os.path.join(DATABASE_FOLDER, file.file_name)
+
+        with open(path, "wb") as f:
+            f.write(downloaded)
+
+        upload_wait.remove(user_id)
+
+        bot.reply_to(
+            message,
+            f"✅ Uploaded:\n{file.file_name}\n\nRun /buildindex"
+        )
+
+    except Exception as e:
+        bot.reply_to(message, f"Upload failed:\n{e}")
 
 # =========================================================
 # BUILD INDEX
@@ -348,28 +426,35 @@ def upload(message):
 
 @bot.message_handler(commands=["buildindex"])
 def buildindex(message):
+
     if not is_admin(message.from_user.username):
         return
 
     bot.reply_to(message, "🔨 Building index...")
+
     build_index()
-    bot.reply_to(message, "✅ Done")
+
+    bot.reply_to(message, "✅ Index built successfully")
 
 # =========================================================
-# RUN
+# MAIN
 # =========================================================
 
 def main():
+
     os.makedirs(DATABASE_FOLDER, exist_ok=True)
 
     print("Bot running...")
 
-    while True:
-        try:
-            bot.infinity_polling()
-        except Exception as e:
-            print(e)
-            time.sleep(5)
+    bot.infinity_polling(
+        timeout=60,
+        long_polling_timeout=60,
+        skip_pending=True
+    )
+
+# =========================================================
+# START
+# =========================================================
 
 if __name__ == "__main__":
     main()
