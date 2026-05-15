@@ -1,5 +1,5 @@
 # =========================================================
-# SAFE SEARCH BOT - ZIP DATABASE VERSION
+# SAFE SEARCH BOT - GITHUB ZIP DATABASE VERSION
 # =========================================================
 
 import os
@@ -8,6 +8,7 @@ import secrets
 import pickle
 import re
 import zipfile
+import requests
 
 from datetime import datetime, timedelta
 from collections import defaultdict
@@ -33,6 +34,11 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATABASE_FOLDER = os.path.join(
     BASE_DIR,
     "database"
+)
+
+ZIP_DATABASE_URL = (
+    "https://raw.githubusercontent.com/"
+    "wlkyggdoo/bot-gen/main/database.zip"
 )
 
 ZIP_DATABASE = os.path.join(
@@ -135,17 +141,36 @@ def is_active(user_id, username=None):
     )
 
 # =========================================================
-# ZIP EXTRACTION
+# DOWNLOAD + EXTRACT ZIP
 # =========================================================
 
 def extract_zip_database():
 
-    if not os.path.exists(ZIP_DATABASE):
+    print("📥 Downloading database.zip...")
 
-        print("❌ database.zip not found")
+    try:
+
+        response = requests.get(
+            ZIP_DATABASE_URL,
+            timeout=60
+        )
+
+        if response.status_code != 200:
+
+            print("❌ Failed to download ZIP")
+            return
+
+        with open(ZIP_DATABASE, "wb") as f:
+            f.write(response.content)
+
+        print("✅ ZIP downloaded")
+
+    except Exception as e:
+
+        print(f"Download Error: {e}")
         return
 
-    print("📦 Extracting database.zip")
+    print("📦 Extracting ZIP...")
 
     os.makedirs(
         DATABASE_FOLDER,
@@ -636,10 +661,8 @@ def main():
         exist_ok=True
     )
 
-    # ✅ AUTO EXTRACT ZIP
     extract_zip_database()
 
-    # ✅ AUTO BUILD INDEX
     build_index()
 
     print("🚀 Bot running...")
