@@ -33,8 +33,8 @@ USERS_FILE = os.path.join(BASE_DIR, "users.json")
 BANNED_FILE = os.path.join(BASE_DIR, "banned.json")
 INDEX_FILE = os.path.join(BASE_DIR, "search_index.pkl")
 
-RESULT_LIMIT = 10000
-MAX_RESULTS_SEND = 500
+RESULT_LIMIT = 100000
+MAX_RESULTS_SEND = 100000
 
 bot = telebot.TeleBot(API_TOKEN)
 
