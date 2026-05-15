@@ -1,17 +1,15 @@
 # =========================================================
-# SAFE SEARCH BOT - GITHUB ZIP DATABASE VERSION
+# SAFE SEARCH BOT - LOW RAM VERSION FOR RENDER
 # =========================================================
 
 import os
 import json
 import secrets
-import pickle
 import re
 import zipfile
 import requests
 
 from datetime import datetime, timedelta
-from collections import defaultdict
 
 import telebot
 from telebot.types import (
@@ -49,7 +47,6 @@ ZIP_DATABASE = os.path.join(
 KEYS_FILE = os.path.join(BASE_DIR, "keys.json")
 USERS_FILE = os.path.join(BASE_DIR, "users.json")
 BANNED_FILE = os.path.join(BASE_DIR, "banned.json")
-INDEX_FILE = os.path.join(BASE_DIR, "search_index.pkl")
 
 RESULT_LIMIT = 10000
 MAX_RESULTS_SEND = 500
@@ -152,7 +149,7 @@ def extract_zip_database():
 
         response = requests.get(
             ZIP_DATABASE_URL,
-            timeout=60
+            timeout=120
         )
 
         if response.status_code != 200:
@@ -193,30 +190,24 @@ def extract_zip_database():
         print(f"ZIP Error: {e}")
 
 # =========================================================
-# INDEX SYSTEM
+# LOW RAM SEARCH
 # =========================================================
 
-def build_index():
+def search_database(query):
 
-    print("🔨 Building index...")
+    results = []
 
-    index = defaultdict(list)
+    query = query.lower()
 
     if not os.path.exists(DATABASE_FOLDER):
-
-        print("❌ No database folder")
-        return
+        return results
 
     files = [
         f for f in os.listdir(DATABASE_FOLDER)
         if f.endswith(".txt")
     ]
 
-    total_lines = 0
-
     for file in files:
-
-        print(f"📂 Indexing {file}")
 
         path = os.path.join(
             DATABASE_FOLDER,
@@ -234,74 +225,19 @@ def build_index():
 
                 for line in f:
 
-                    line = line.strip()
+                    if query in line.lower():
 
-                    if not line:
-                        continue
-
-                    total_lines += 1
-
-                    words = set(
-                        re.findall(
-                            r'\b\w+\b',
-                            line.lower()
+                        results.append(
+                            line.strip()
                         )
-                    )
 
-                    for word in words:
+                        if len(results) >= RESULT_LIMIT:
+                            return results
 
-                        if len(word) > 2:
+        except:
+            pass
 
-                            index[word].append(line)
-
-        except Exception as e:
-
-            print(e)
-
-    with open(INDEX_FILE, "wb") as f:
-
-        pickle.dump(dict(index), f)
-
-    print(
-        f"✅ Index complete | "
-        f"{len(files)} files | "
-        f"{total_lines:,} lines"
-    )
-
-def load_index():
-
-    try:
-
-        with open(INDEX_FILE, "rb") as f:
-            return pickle.load(f)
-
-    except:
-        return None
-
-def search_database(query):
-
-    index = load_index()
-
-    if not index:
-        return []
-
-    query_words = set(
-        re.findall(
-            r'\b\w+\b',
-            query.lower()
-        )
-    )
-
-    results = []
-
-    for word in query_words:
-
-        if word in index:
-            results.extend(index[word])
-
-    return list(
-        dict.fromkeys(results)
-    )[:RESULT_LIMIT]
+    return results
 
 # =========================================================
 # START
@@ -356,13 +292,19 @@ def search(message):
 
     query = parts[1]
 
+    msg = bot.reply_to(
+        message,
+        "🔍 Searching..."
+    )
+
     results = search_database(query)
 
     if not results:
 
-        return bot.reply_to(
-            message,
-            "❌ No results found"
+        return bot.edit_message_text(
+            "❌ No results found",
+            msg.chat.id,
+            msg.message_id
         )
 
     temp_data[user_id] = {
@@ -370,14 +312,15 @@ def search(message):
         "results": results
     }
 
-    bot.reply_to(
-        message,
+    bot.edit_message_text(
         f"⚡ Found {len(results)} results\n\n"
-        "How many results do you want?"
+        "How many results do you want?",
+        msg.chat.id,
+        msg.message_id
     )
 
     bot.register_next_step_handler(
-        message,
+        msg,
         process_amount
     )
 
@@ -663,15 +606,21 @@ def main():
 
     extract_zip_database()
 
-    build_index()
-
     print("🚀 Bot running...")
 
-    bot.infinity_polling(
-        timeout=60,
-        long_polling_timeout=60,
-        skip_pending=True
-    )
+    while True:
+
+        try:
+
+            bot.infinity_polling(
+                timeout=60,
+                long_polling_timeout=60,
+                skip_pending=True
+            )
+
+        except Exception as e:
+
+            print(e)
 
 # =========================================================
 # START
